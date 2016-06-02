@@ -18,12 +18,14 @@ find_package(catkin REQUIRED COMPONENTS
   cmake_modules
 )
 
-find_package(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 add_message_files(
   FILES
   AprilTagDetection.msg
   AprilTagDetectionArray.msg
+  AprilTagDetectionImage.msg
+  AprilTagDetectionImageArray.msg
 )
 
 generate_messages(
@@ -36,16 +38,19 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES apriltag_detector
   CATKIN_DEPENDS apriltags image_transport roscpp sensor_msgs geometry_msgs tf cv_bridge message_runtime nodelet std_msgs
-  DEPENDS Eigen
+  DEPENDS Eigen3
 )
 
 ###########
 ## Build ##
 ###########
 
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wno-deprecated-register -O3")
+
+
 include_directories(include)
 include_directories(
-  ${Eigen_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIR}
   ${catkin_INCLUDE_DIRS}
 )
 
