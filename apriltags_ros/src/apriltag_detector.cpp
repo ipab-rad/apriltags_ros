@@ -38,19 +38,37 @@ AprilTagDetector::AprilTagDetector(ros::NodeHandle& nh,
     image_annotation_on = true;
   }
 
-  AprilTags::TagCodes tag_codes = AprilTags::tagCodes36h11;
-  tag_detector_ = boost::shared_ptr<AprilTags::TagDetector>
-                  (new AprilTags::TagDetector(tag_codes));
+  std::string tag_family;
+  pnh.param<std::string>("tag_family", tag_family, "36h11");
+  pnh.param<bool>("projected_optics", projected_optics_, false);
+
+  const AprilTags::TagCodes* tag_codes;
+  if (tag_family == "16h5") {
+    tag_codes = &AprilTags::tagCodes16h5;
+  } else if (tag_family == "25h7") {
+    tag_codes = &AprilTags::tagCodes25h7;
+  } else if (tag_family == "25h9") {
+    tag_codes = &AprilTags::tagCodes25h9;
+  } else if (tag_family == "36h9") {
+    tag_codes = &AprilTags::tagCodes36h9;
+  } else if (tag_family == "36h11") {
+    tag_codes = &AprilTags::tagCodes36h11;
+  } else {
+    ROS_WARN("Invalid tag family specified; defaulting to 36h11");
+    tag_codes = &AprilTags::tagCodes36h11;
+  }
+
+  tag_detector_ = boost::shared_ptr<AprilTags::TagDetector>(
+                    new AprilTags::TagDetector(*tag_codes));
   image_sub_ = it_.subscribeCamera(
                  "image_rect", 1, &AprilTagDetector::imageCb, this);
-
   if (image_annotation_on) {
     image_pub_ = it_.advertise("tag_detections_image", 1);
   }
-  detections_pub_ = nh.advertise<AprilTagDetectionArray>("tag_detections", 1);
+  detections_pub_ = pnh.advertise<AprilTagDetectionArray>("tag_detections", 1);
   detections_image_pub_ =
-    nh.advertise<AprilTagDetectionImageArray>("tag_image_detections", 1);
-  pose_pub_ = nh.advertise<geometry_msgs::PoseArray>("tag_detections_pose", 1);
+    pnh.advertise<AprilTagDetectionImageArray>("tag_image_detections", 1);
+  pose_pub_ = pnh.advertise<geometry_msgs::PoseArray>("tag_detections_pose", 1);
 }
 
 AprilTagDetector::~AprilTagDetector() {
@@ -59,6 +77,7 @@ AprilTagDetector::~AprilTagDetector() {
 
 void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,
                                const sensor_msgs::CameraInfoConstPtr& cam_info) {
+
   cv_bridge::CvImagePtr cv_ptr;
   try {
     cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
@@ -90,10 +109,26 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,
     tag_detection_image_array.detections.push_back(image_detection);
   }
 
-  double fx = cam_info->K[0];
-  double fy = cam_info->K[4];
-  double px = cam_info->K[2];
-  double py = cam_info->K[5];
+  double fx;
+  double fy;
+  double px;
+  double py;
+  if (projected_optics_) {
+    // use projected focal length and principal point
+    // these are the correct values
+    fx = cam_info->P[0];
+    fy = cam_info->P[5];
+    px = cam_info->P[2];
+    py = cam_info->P[6];
+  } else {
+    // use camera intrinsic focal length and principal point
+    // for backwards compatability
+    fx = cam_info->K[0];
+    fy = cam_info->K[4];
+    px = cam_info->K[2];
+    py = cam_info->K[5];
+  }
+
 
   if (!sensor_frame_id_.empty())
     cv_ptr->header.frame_id = sensor_frame_id_;
@@ -116,8 +151,10 @@ void AprilTagDetector::imageCb(const sensor_msgs::ImageConstPtr& msg,
     if (image_annotation_on) {
       detection.draw(cv_ptr->image);
     }
+
     Eigen::Matrix4d transform =
       detection.getRelativeTransform(tag_size, fx, fy, px, py);
+
     Eigen::Matrix3d rot = transform.block(0, 0, 3, 3);
     Eigen::Quaternion<double> rot_quaternion = Eigen::Quaternion<double>(rot);
 
